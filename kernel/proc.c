@@ -437,6 +437,7 @@ wait(uint64 addr)
   }
 }
 
+////////////////// Initial Scheduler Logic //////////////////
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -444,44 +445,115 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+// void
+// scheduler(void)
+// {
+//   struct proc *p;
+//   struct cpu *c = mycpu();
+
+//   c->proc = 0;
+//   for(;;){
+//     // The most recent process to run may have had interrupts
+//     // turned off; enable them to avoid a deadlock if all
+//     // processes are waiting.
+//     intr_on();
+
+//     int found = 0;
+//     for(p = proc; p < &proc[NPROC]; p++) {
+//       acquire(&p->lock);
+//       if(p->state == RUNNABLE) {
+//         // Switch to chosen process.  It is the process's job
+//         // to release its lock and then reacquire it
+//         // before jumping back to us.
+//         p->state = RUNNING;
+//         c->proc = p;
+//         swtch(&c->context, &p->context);
+
+//         // Process is done running for now.
+//         // It should have changed its p->state before coming back.
+//         c->proc = 0;
+//         found = 1;
+//       }
+//       release(&p->lock);
+//     }
+//     if(found == 0) {
+//       // nothing to run; stop running on this core until an interrupt.
+//       intr_on();
+//       asm volatile("wfi");
+//     }
+//   }
+// }
+ 
+//////////////// New Scheduler Logic 20250630 //////////////////
+// Per-CPU process scheduler.
+// Each CPU calls scheduler() after setting itself up.
+// Scheduler never returns.  It loops, doing:
+//  - choose a process to run based on priority scheduling.
+//  - if multiple processes share same priority scheduler runs them 'round-robin'
+//  - swtch to start running that process.
+//  - eventually that process transfers control via swtch back to the scheduler.
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-
+  static int last_index = -1; // used for round robin tracking
+  
   c->proc = 0;
   for(;;){
     // The most recent process to run may have had interrupts
     // turned off; enable them to avoid a deadlock if all
     // processes are waiting.
     intr_on();
-
-    int found = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
+    int highest_prior = 101; // sets the value above the upper bound of the [0-100] in the assingment
+    int found_runnable = 0; // sets up bool checks for runnable programs
+    // step 1 - finds the lowest priority number from all runnable processes
+    for(p = proc; p < &proc[NPROC]; p++){
       acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+      if(p->state == RUNNABLE && p->pprior < highest_prior){
+        highest_prior = p->pprior;
+        found_runnable = 1;
       }
       release(&p->lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+
+    // if no runnable processes wait
+    if(!found_runnable || highest_prior > 100){
+      intr_on();
+      asm volatile("wfi");
+      continue;
+    }
+    // step 2 - find next highest priority process using round robin
+    struct proc *chosen = 0;
+    int start_index = (last_index + 1) % NPROC; 
+    int current_index = start_index;
+    //  searchs through the process table from "last_index+1" onwards
+    do {
+      p = &proc[current_index];
+      acquire(&p->lock);
+      if(p->state == RUNNABLE && p->pprior == highest_prior){
+        chosen = p;
+        last_index = current_index;
+        break;
+      }
+      release(&p->lock);
+      current_index = (current_index + 1) % NPROC;
+    } while(current_index != start_index);
+    // step 3 - context switching to chosen process from previous steps
+    if(chosen){
+      p = chosen;
+      p->state = RUNNING;
+      c->proc = p;
+      swtch(&c->context, &p->context);
+      c->proc = 0;
+      release(&p->lock);
+    } else {
       intr_on();
       asm volatile("wfi");
     }
   }
 }
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
