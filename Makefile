@@ -129,6 +129,7 @@ UPROGS=\
 	$U/_grep\
 	$U/_init\
 	$U/_sleep\
+	$U/_priority_test.c\
 	$U/_kill\
 	$U/_ln\
 	$U/_ls\

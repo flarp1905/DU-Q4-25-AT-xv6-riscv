@@ -91,3 +91,20 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// function retreives the int arg passed by user, validates within range [0-100], and if valid set priority of current process. 
+// returns 0 success -1 failure
+uint64
+sys_set_priority(void)
+{
+  int priority;
+  argint(0, &priority);
+  if(priority < 0 || priority > 100){
+    return -1;
+  }
+  struct proc *p = myproc();
+  acquire(&p->lock);
+  p->pprior = priority;
+  release(&p->lock);
+  return 0;
+}

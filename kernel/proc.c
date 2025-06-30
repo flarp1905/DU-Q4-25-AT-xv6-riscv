@@ -124,6 +124,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->pprior = 60;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -280,6 +281,7 @@ int
 fork(void)
 {
   int i, pid;
+  // int j, ppior;
   struct proc *np;
   struct proc *p = myproc();
 
@@ -311,6 +313,7 @@ fork(void)
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
+  np->pprior = p->pprior;
 
   release(&np->lock);
 
